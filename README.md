@@ -1,5 +1,5 @@
 # ImageOcean
-###### ImageOcean is a Django-based web application that shares browsable API created with django rest framework. API allows users to authorize, create thumbnails and fetch link to binary images that that expires after a number of seconds (user can specify any number between 300 and 30000)
+###### ImageOcean is a Django-based web application that shares browsable API created with django rest framework. API allows users to authorize, create thumbnails and fetch link to binary images that that expires after a number of seconds (user can specify any number between 300 and 30000).
 
 ## To run and test the application, you must follow these steps:
 
@@ -106,7 +106,6 @@ Responses:
     {
         'detail': 'Not found.'
     }
-JSON with thumbnails urls and link to original image (depends on user tier)
 
 ## Fetch link to binary image: 
 ###### endpoint: http://127.0.0.1:8000/api/images/<'pk'>/binary
