@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.contrib.postgres.fields import ArrayField
@@ -26,7 +28,7 @@ class UserTier(models.Model):
 
 class AppUser(AbstractUser):
     """Model of application user"""
-    tier = models.ForeignKey(UserTier, on_delete=models.CASCADE, blank=True, null=True)
+    tier = models.ForeignKey(UserTier, on_delete=models.CASCADE, blank=True, null=True, default=None)
 
     class Meta(AbstractUser.Meta):
         swappable = "AUTH_USER_MODEL"
@@ -36,3 +38,9 @@ class UploadedImage(models.Model):
     user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
     image_url = models.ImageField(upload_to=upload_to,validators=[validate_image], blank=True)
     thumbnails_urls = ArrayField(models.URLField(), default=list)
+
+@receiver(post_save, sender=AppUser)
+def set_tier(sender, instance, created, **kwargs):
+    if created:
+        instance.tier = UserTier.objects.get(name="Basic")
+        instance.save()
