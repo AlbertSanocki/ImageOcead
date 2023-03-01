@@ -4,9 +4,9 @@ from . import views
 app_name = 'images'
 
 urlpatterns = [
-    path('', views.ImageListCreteAPIView.as_view()),
-    path('<int:pk>/', views.ImageDetailAPIView.as_view()),
-    path('<int:pk>/binary/', views.FetchLinkToBinaryImageAPIView.as_view()),
+    path('', views.ImageListCreteAPIView.as_view(), name='list_create_image'),
+    path('<int:pk>/', views.ImageDetailAPIView.as_view(), name='image_details'),
+    path('<int:pk>/binary/', views.FetchLinkToBinaryImageAPIView.as_view(), name='binary_link'),
     path('<int:pk>/thumbnail_view/<int:height>/<str:name>', views.thumbnail_view,\
         name='thumbnail_view'),
     path('<int:pk>/binary_image_view/<str:expiration_time_str>/<str:name>', \

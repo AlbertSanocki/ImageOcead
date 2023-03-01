@@ -26,6 +26,8 @@ def create_thumbnail(image_path, height):
         bytes: The bytes of the thumbnail image.
     """
 
+    if not os.path.exists(image_path):
+        raise Http404
     img = Image.open(image_path)
     if img.height != height:
         ratio = height / float(img.height)
@@ -48,6 +50,8 @@ def create_binary_image(image_path):
         bytes: The bytes of the binary image.
     """
 
+    if not os.path.exists(image_path):
+        raise Http404
     img = Image.open(image_path)
     binary_image = img.convert('1')
     binary_io = BytesIO()
@@ -69,21 +73,33 @@ def thumbnail_view(request, pk, height, name):
     Returns:
         HttpResponse: The response containing the thumbnail image.
     """
+    
+    try:
+        height = int(height)
+        if height < 10 or height > 1000:
+            raise ValueError('Height should be between 1 and 1000.')
+        if height not in request.user.tier.thumbnail_sizes:
+            raise ValueError('Your account tier does not allow You to create thumbail of this height')
+    except ValueError as err_msg:
+        return HttpResponse(f'Invalid height! {err_msg}', status=400)
 
-    image = UploadedImage.objects.get(pk=pk)
+    image = get_object_or_404(UploadedImage, pk=pk, user=request.user)
+    if not os.path.exists(image.image_url.path):
+        raise Http404
     image_path = image.image_url.path
     thumbnail_data = create_thumbnail(image_path, height)
     thumbnail = Image.open(BytesIO(thumbnail_data))
-    original_format = image.image_url.name.split('.')[-1]
+    original_format = image.image_url.name.split('.')[-1].upper()
 
-    if original_format == 'png':
-        content_type = "image/png"
-        save_format = "PNG"
-    elif original_format == 'jpg' or original_format == 'jpeg':
-        content_type = "image/jpeg"
-        save_format = "JPEG"
-    else:
-        return HttpResponse("Unsupported image format")
+    match original_format:
+        case 'PNG':
+            content_type = "image/png"
+            save_format = "PNG"
+        case 'JPG' | 'JPEG':
+            content_type = "image/jpeg"
+            save_format = "JPEG"
+        case _:
+            return HttpResponse("Unsupported image format", status=400)
 
     response = HttpResponse(content_type=content_type)
     thumbnail.save(response, save_format)
@@ -103,10 +119,15 @@ def binary_image_view(request, pk, expiration_time_str, name):
         HttpResponse: The response containing the binary image.
     """
 
-    expiration_time = datetime.datetime.strptime(expiration_time_str, '%Y-%m-%dT%H:%M:%S')
+    try: 
+        expiration_time = datetime.datetime.strptime(expiration_time_str, '%Y-%m-%dT%H:%M:%S')
+    except ValueError as err_msg:
+        return HttpResponse(f'Invalid date! {err_msg}', status=400)
     if datetime.datetime.now() > expiration_time:
         return HttpResponseForbidden("The signed URL has expired.")
-    image = UploadedImage.objects.get(pk=pk)
+    image = get_object_or_404(UploadedImage, pk=pk, user=request.user)
+    if not os.path.exists(image.image_url.path):
+        raise Http404
     image_path = image.image_url.path
     binary_image_data = create_binary_image(image_path)
     binary_image = Image.open(BytesIO(binary_image_data))

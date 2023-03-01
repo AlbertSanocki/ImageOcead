@@ -41,6 +41,7 @@ class UploadedImage(models.Model):
 
 @receiver(post_save, sender=AppUser)
 def set_tier(sender, instance, created, **kwargs):
+    """Set tier of the newly created user"""
     if created:
         instance.tier = UserTier.objects.get(name="Basic")
         instance.save()
