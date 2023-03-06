@@ -2,19 +2,12 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth.models import AbstractUser
-from django.core.exceptions import ValidationError
 from django.contrib.postgres.fields import ArrayField
-from imageocean.settings import ALLOWED_IMAGE_EXTENSIONS
+from .services.validators import validate_image
 
 def upload_to(instance, filename):
     """Path for upload creator"""
     return 'images/{filename}'.format(filename=filename)
-
-def validate_image(image):
-    """Image validator"""
-    ext = image.name.split('.')[-1]
-    if not ext.lower() in ALLOWED_IMAGE_EXTENSIONS:
-        raise ValidationError(message="Invalid file extension allowed extensions are .JPG and .PNG")
 
 class UserTier(models.Model):
     """Model of user tier"""

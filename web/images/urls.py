@@ -9,6 +9,6 @@ urlpatterns = [
     path('<int:pk>/binary/', views.FetchLinkToBinaryImageAPIView.as_view(), name='binary_link'),
     path('<int:pk>/thumbnail_view/<int:height>/<str:name>', views.thumbnail_view,\
         name='thumbnail_view'),
-    path('<int:pk>/binary_image_view/<str:expiration_time_str>/<str:name>', \
+    path('<int:pk>/binary_image_view/<str:name>/<str:encoded_expiration_time>', \
         views.binary_image_view, name='binary_image_view')
 ]
