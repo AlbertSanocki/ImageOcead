@@ -4,14 +4,13 @@ from io import BytesIO
 from django.http import Http404
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.files.storage import default_storage
-from django.utils.encoding import force_str
-from django.utils.http import urlsafe_base64_decode
+from django.utils.encoding import force_str, force_bytes
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase, APIClient
 from django.urls import reverse
 from PIL import Image
-from io import BytesIO
 import tempfile
 from .services.tools import (
     create_thumbnail_data,
@@ -48,7 +47,6 @@ class BaseTestCase(APITestCase):
             SimpleUploadedFile(name=self.file_name, content=file_content.read())
         )
         self.image = UploadedImage.objects.create(user=self.user, image_url=self.media_file)
-        self.client.force_login(self.user)
 
     def tearDown(self):
         UploadedImage.objects.all().delete()
@@ -71,6 +69,7 @@ class CreateThumbnailTestCase(APITestCase):
     def test_create_thumbnail_with_nonexistent_file(self):
         with self.assertRaises(Http404):
             create_thumbnail_data('nonexistent.jpg', 50)
+        print()
 
     def tearDown(self):
         try:
@@ -111,18 +110,20 @@ class CreateBinaryImageTestCase(APITestCase):
 class CreateThumbnailUrlsTestCase(BaseTestCase):
 
     def test_positive_create_thumbnail_urls(self):
+        self.client.force_login(self.user)
         request = self.client.get('/').wsgi_request
         instance = self.image
         thumbnail_sizes = self.user.tier.thumbnail_sizes
         thumbnails_urls = create_thumbnail_urls(request, instance, thumbnail_sizes)
         self.assertEqual(len(thumbnails_urls), 3)
-        self.assertEqual(thumbnails_urls[0], {'50px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/50/{self.file_name}'})
-        self.assertEqual(thumbnails_urls[1], {'100px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/100/{self.file_name}'})
-        self.assertEqual(thumbnails_urls[2], {'200px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/200/{self.file_name}'})
+        self.assertEqual(thumbnails_urls[0], {'50px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/50/test_image.jpg'})
+        self.assertEqual(thumbnails_urls[1], {'100px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/100/test_image.jpg'})
+        self.assertEqual(thumbnails_urls[2], {'200px': f'http://testserver/api/images/{self.image.pk}/thumbnail_view/200/test_image.jpg'})
 
 class CreateExpiringLinkTestCase(BaseTestCase):
 
     def test_positive_create_expiring_link(self):
+        self.client.force_login(self.user)
         request = self.client.get('/').wsgi_request
         pk = self.image.pk
         self.user.tier.expiring_links = True
@@ -153,12 +154,14 @@ class MatchContentTypeAndSaveFormatTestCase(APITestCase):
 class ThumbnailHeightValidatorTestCase(BaseTestCase):
 
     def test_positive_valid_height(self):
+        self.client.force_login(self.user)
         valid_height = 200
         url = reverse('images:thumbnail_view', kwargs={'pk': self.image.pk, 'height': valid_height, 'name': os.path.basename(self.image.image_url.path)},)
         response = self.client.post(url)
         self.assertEqual(response.status_code, 200)
 
     def test_negative_valid_height_based_on_account_tier(self):
+        self.client.force_login(self.user)
         invalid_height = 60
         url = reverse('images:thumbnail_view', kwargs={'pk': self.image.pk, 'height': invalid_height, 'name': os.path.basename(self.image.image_url.path)},)
         response = self.client.post(url)
@@ -166,6 +169,7 @@ class ThumbnailHeightValidatorTestCase(BaseTestCase):
         self.assertEqual(response.content.decode('utf-8'), 'Your account tier does not allow You to create thumbail of this height')
 
     def test_negative_valid_height_outside_the_range(self):
+        self.client.force_login(self.user)
         invalid_height = 10^999
         url = reverse('images:thumbnail_view', kwargs={'pk': self.image.pk, 'height': invalid_height, 'name': os.path.basename(self.image.image_url.path)},)
         response = self.client.post(url)
@@ -190,6 +194,62 @@ class ExpirationSecondsParamValidatorTestCase(APITestCase):
         with self.assertRaises(InvalidExpirationSeconds) as ve:
             validate_expiration_seconds(invalid_expiration_seconds)
         self.assertEqual(str(ve.exception), 'expiration_seconds must be an integer')
+
+class ThumbnailViewTestCase(BaseTestCase):
+
+    def test_positive_thumbnail_view(self):
+        self.client.force_login(self.user)
+        height = self.user.tier.thumbnail_sizes.pop()
+        url = reverse('images:thumbnail_view', kwargs={'pk': self.image.pk, 'height': height, 'name': os.path.basename(self.image.image_url.path)},)
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+
+    def test_no_auth__thumbnail_view(self):
+        height = self.user.tier.thumbnail_sizes.pop()
+        url = reverse('images:thumbnail_view', kwargs={'pk': self.image.pk, 'height': height, 'name': os.path.basename(self.image.image_url.path)},)
+        response = self.client.post(url)
+        self.assertRedirects(
+            response,
+            f'/accounts/login/?next=/api/images/{self.image.pk}/thumbnail_view/200/test_image.jpg',
+            status_code=302,
+            target_status_code=200
+        )
+
+class BinaryImageViewTestCase(BaseTestCase):
+
+    def test_positive_binary_image_view(self):
+        self.client.force_login(self.user)
+        self.user.tier.expiring_links = True
+        expiration_time = datetime.datetime.now() + datetime.timedelta(hours=24)
+        encoded_expiration_time = urlsafe_base64_encode(force_bytes(expiration_time.strftime('%Y-%m-%dT%H:%M:%S')))
+        kwargs = {
+            'pk': self.image.pk,
+            'encoded_expiration_time': encoded_expiration_time,
+            'name': os.path.basename(self.image.image_url.path)
+        }
+        url = reverse('images:binary_image_view', kwargs=kwargs)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'image/jpeg')
+        self.assertIsNotNone(response.content)
+
+    def test_no_auth_binary_image_view(self):
+        self.user.tier.expiring_links = True
+        expiration_time = datetime.datetime.now() + datetime.timedelta(hours=24)
+        encoded_expiration_time = urlsafe_base64_encode(force_bytes(expiration_time.strftime('%Y-%m-%dT%H:%M:%S')))
+        kwargs = {
+            'pk': self.image.pk,
+            'encoded_expiration_time': encoded_expiration_time,
+            'name': os.path.basename(self.image.image_url.path)
+        }
+        url = reverse('images:binary_image_view', kwargs=kwargs)
+        response = self.client.get(url)
+        self.assertRedirects(
+            response,
+            f'/accounts/login/?next=/api/images/{self.image.pk}/binary_image_view/test_image.jpg/{encoded_expiration_time}',
+            status_code=302,
+            target_status_code=200
+        )
 
 class ImageListCreteAPIViewTestCase(APITestCase):
 
@@ -251,6 +311,14 @@ class ImageListCreteAPIViewTestCase(APITestCase):
             with_image_serializer.__class__.__name__
         )
 
+    def test_no_auth_list_create_api_view(self):
+        url = reverse('images:list_create_image')
+        # test post requests
+        response = self.client.post(url, {'image_url': self.media_file})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual('Authentication credentials were not provided.',\
+                        response.data.get('detail'))
+
     def tearDown(self):
         UploadedImage.objects.all().delete()
         UserTier.objects.all().delete()
@@ -259,6 +327,7 @@ class ImageListCreteAPIViewTestCase(APITestCase):
 class FetchLinkToBinaryImageAPIViewTestCase(BaseTestCase):
 
     def test_positive_fetching_link_to_binary_image(self):
+        self.client.force_login(self.user)
         self.user.tier.expiring_links = True
         self.user.tier.save()
         url = reverse('images:binary_link',args=[self.image.pk])
@@ -269,19 +338,19 @@ class FetchLinkToBinaryImageAPIViewTestCase(BaseTestCase):
         self.assertIn('expiration_seconds', response.data)
         self.assertEqual(valid_expiration_seconds, response.data.get('expiration_seconds'))
 
-    def test_negative_fetching_link_to_binary_image(self):
+    def test_negative_with_int_fetching_link_to_binary_image(self):
+        self.client.force_login(self.user)
         self.user.tier.expiring_links = True
         self.user.tier.save()
         url = reverse('images:binary_link',args=[self.image.pk])
         valid_expiration_seconds = 200
         response = self.client.get(url,{'expiration_seconds': valid_expiration_seconds})
-        print(response.data)
-        print(response.status_code)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual('expiration_seconds must be between 300 and 30000 seconds',\
                         response.data.get('error'))
-        
-    def test_negative_fetching_link_to_binary_image(self):
+
+    def test_negative_with_str_fetching_link_to_binary_image(self):
+        self.client.force_login(self.user)
         self.user.tier.expiring_links = True
         self.user.tier.save()
         url = reverse('images:binary_link',args=[self.image.pk])
@@ -292,6 +361,7 @@ class FetchLinkToBinaryImageAPIViewTestCase(BaseTestCase):
                         response.data.get('error'))
 
     def test_permission_denied_fetching_link_to_binary_image(self):
+        self.client.force_login(self.user)
         self.user.tier.expiring_links = False
         self.user.tier.save()
         url = reverse('images:binary_link',args=[self.image.pk])
@@ -301,7 +371,9 @@ class FetchLinkToBinaryImageAPIViewTestCase(BaseTestCase):
         self.assertEqual('Your account tier does not allow you to fetch link to binary image. Upgrade Your account tier to Enterprice!',\
                         response.data.get('detail'))
 
-    def tearDown(self):
-        UploadedImage.objects.all().delete()
-        UserTier.objects.all().delete()
-        AppUser.objects.all().delete()
+    def test_no_auth_fetching_link_to_binary_image(self):
+        url = reverse('images:binary_link',args=[self.image.pk])
+        response = self.client.get(url, {'image_url': self.media_file})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual('Authentication credentials were not provided.',\
+                        response.data.get('detail'))

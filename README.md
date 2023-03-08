@@ -1,11 +1,13 @@
 # ImageOcean
 ###### ImageOcean is a Django-based web application that shares browsable API created with django rest framework. API allows users to authorize, create thumbnails and fetch link to binary images that that expires after a number of seconds (user can specify any number between 300 and 30000).
 
-## To run and test the application, you must follow these steps:
+## To run and test the application, please follow these steps:
 
 ###### Build the container command: docker-compose -f docker-compose.yml build
 
 ###### Run the container command: docker-compose -f docker-compose.yml up
+
+###### Run tests command: docker-compose run --rm web sh -c "python manage.py test images"
 
 ###### Crete superuser command: docker-compose run --rm web sh -c "python manage.py createsuperuser"
 

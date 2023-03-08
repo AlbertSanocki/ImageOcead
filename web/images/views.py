@@ -3,10 +3,13 @@ from io import BytesIO
 import datetime
 
 from PIL import Image
+from django.core.cache import cache
+from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.shortcuts import get_object_or_404
+from django.views.decorators.cache import cache_control
 from rest_framework import generics, permissions, authentication, status
 from rest_framework.response import Response
 
@@ -23,6 +26,7 @@ from .services.custom_exceptions import InvalidExpirationRange, InvalidExpiratio
 from api.authentication import TokenAuthentication
 from api.permissions import CanAccessBinaryImage
 
+@login_required
 @validate_height
 def thumbnail_view(request, pk, height, name):
     """
@@ -41,7 +45,11 @@ def thumbnail_view(request, pk, height, name):
     image = get_object_or_404(UploadedImage, pk=pk, user=request.user)
     if not os.path.exists(image.image_url.path):
         raise Http404
-    thumbnail_data = create_thumbnail_data(image.image_url.path, height)
+    cache_key = f"thumbnail_{pk}_{height}"
+    thumbnail_data = cache.get(cache_key)
+    if thumbnail_data is None:
+        thumbnail_data = create_thumbnail_data(image.image_url.path, height)
+        cache.set(cache_key, thumbnail_data)
     thumbnail = Image.open(BytesIO(thumbnail_data))
     try:
         content_type, save_format = match_content_type_and_save_format(image.image_url.name.split('.')[-1].upper())
@@ -51,6 +59,8 @@ def thumbnail_view(request, pk, height, name):
     thumbnail.save(response, save_format)
     return response
 
+@login_required
+@cache_control(max_age=30000)
 def binary_image_view(request, pk, encoded_expiration_time, name):
     """
     A view that returns a binary version of an image.
@@ -108,7 +118,8 @@ class ImageListCreteAPIView(generics.ListCreateAPIView):
         instance = serializer.save(user=self.request.user)
         thumbnail_sizes = self.request.user.tier.thumbnail_sizes
         thumbnails_urls = create_thumbnail_urls(self.request, instance, thumbnail_sizes)
-        serializer.save(thumbnails_urls=thumbnails_urls)
+        instance.thumbnails_urls = thumbnails_urls
+        instance.save()
 
 class ImageDetailAPIView(generics.RetrieveAPIView):
     """
